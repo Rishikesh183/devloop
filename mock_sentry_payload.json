@@ -1,0 +1,45 @@
+{
+  "project": "devloop-demo-app",
+  "environment": "production",
+  "event": {
+    "event_id": "abc123def456789012345678901234ab",
+    "title": "TypeError: unsupported operand type(s) for *: 'int' and 'NoneType'",
+    "environment": "production",
+    "exception": {
+      "values": [
+        {
+          "type": "TypeError",
+          "value": "unsupported operand type(s) for *: 'int' and 'NoneType'",
+          "stacktrace": {
+            "frames": [
+              {
+                "filename": "store/pricing.py",
+                "lineno": 2,
+                "function": "apply_discount",
+                "in_app": true,
+                "context_line": "    return price - (price * discount_percent / 100)",
+                "pre_context": [
+                  "def apply_discount(price, discount_percent):"
+                ],
+                "post_context": []
+              },
+              {
+                "filename": "store/pricing.py",
+                "lineno": 10,
+                "function": "calculate_order_total",
+                "in_app": true,
+                "context_line": "    total = apply_discount(subtotal, discount)",
+                "pre_context": [
+                  "    discount = get_seasonal_discount()"
+                ],
+                "post_context": [
+                  "    return round(total, 2)"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}
