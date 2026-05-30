@@ -15,17 +15,18 @@ GITHUB_REPO = os.getenv("GITHUB_REPO", "")
 GITHUB_BASE_BRANCH = os.getenv("GITHUB_BASE_BRANCH", "main")
 
 
-def _get_client() -> Github:
-    if not GITHUB_TOKEN:
+def _get_client(token: str = None) -> Github:
+    t = token or GITHUB_TOKEN
+    if not t:
         raise ValueError("GITHUB_TOKEN not set in environment")
-    return Github(GITHUB_TOKEN)
+    return Github(t)
 
 
-def fetch_file(repo_name: str, filepath: str, branch: str = None) -> str:
+def fetch_file(repo_name: str, filepath: str, branch: str = None, token: str = None) -> str:
     branch = branch or GITHUB_BASE_BRANCH
     logger.info("Fetching %s from %s@%s", filepath, repo_name, branch)
     try:
-        g = _get_client()
+        g = _get_client(token)
         repo = g.get_repo(repo_name)
         content = repo.get_contents(filepath, ref=branch)
         decoded = base64.b64decode(content.content).decode("utf-8")
@@ -39,10 +40,10 @@ def fetch_file(repo_name: str, filepath: str, branch: str = None) -> str:
         raise
 
 
-def create_branch(repo_name: str, branch_name: str) -> str:
+def create_branch(repo_name: str, branch_name: str, token: str = None) -> str:
     logger.info("Creating branch %s in %s", branch_name, repo_name)
     try:
-        g = _get_client()
+        g = _get_client(token)
         repo = g.get_repo(repo_name)
         base_ref = repo.get_branch(GITHUB_BASE_BRANCH)
         repo.create_git_ref(f"refs/heads/{branch_name}", base_ref.commit.sha)
@@ -62,10 +63,11 @@ def commit_patch(
     filepath: str,
     new_content: str,
     message: str,
+    token: str = None,
 ) -> str:
     logger.info("Committing patch to %s on branch %s", filepath, branch)
     try:
-        g = _get_client()
+        g = _get_client(token)
         repo = g.get_repo(repo_name)
         current = repo.get_contents(filepath, ref=branch)
         result = repo.update_file(
@@ -91,10 +93,11 @@ def open_pr(
     branch: str,
     title: str,
     body: str,
+    token: str = None,
 ) -> str:
     logger.info("Opening PR from %s in %s", branch, repo_name)
     try:
-        g = _get_client()
+        g = _get_client(token)
         repo = g.get_repo(repo_name)
         pr = repo.create_pull(
             title=title,

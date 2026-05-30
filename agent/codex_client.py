@@ -12,6 +12,7 @@ logger = logging.getLogger("devloop.codex_client")
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+OPENROUTER_API_KEY_2 = os.getenv("OPENROUTER_API_KEY_2", "")
 
 # Step 1: Analyzer — small/fast models, just reads error + trace
 # Job: identify root cause, pinpoint exact problem. No code generation.
@@ -55,13 +56,17 @@ Respond in this exact JSON format with no markdown, no text outside JSON:
 }"""
 
 
-def _openrouter_client() -> OpenAI:
+def _openrouter_client(api_key: str) -> OpenAI:
     return OpenAI(
-        api_key=OPENROUTER_API_KEY,
+        api_key=api_key,
         base_url="https://openrouter.ai/api/v1",
         max_retries=0,
         default_headers={"HTTP-Referer": "https://github.com/devloop", "X-Title": "DevLoop"},
     )
+
+
+def _get_openrouter_keys() -> list[str]:
+    return [k for k in [OPENROUTER_API_KEY, OPENROUTER_API_KEY_2] if k]
 
 
 def _strip_fences(text: str) -> str:
@@ -90,38 +95,42 @@ def _call_model(client: OpenAI, model: str, system: str, user: str) -> str:
     return content.strip()
 
 
-def _try_models(client: OpenAI, models: list[str], system: str, user: str, required_keys: set, label: str) -> dict:
-    """Try each model in list. Return parsed dict on first success, raise if all fail."""
-    seen = set()
+def _try_models(keys: list[str], models: list[str], system: str, user: str, required_keys: set, label: str) -> dict:
+    """Try each model × each key. Return parsed dict on first success, raise if all fail."""
+    seen: set = set()
     model_list = [m for m in models if m and m not in seen and not seen.add(m)]
 
     last_error = None
     for model in model_list:
-        logger.info("[%s] trying %s", label, model)
-        try:
-            raw = _call_model(client, model, system, user)
-            raw = _strip_fences(raw)
-            result = json.loads(raw)
-            missing = required_keys - result.keys()
-            if missing:
-                raise ValueError(f"Missing keys: {missing}")
-            logger.info("[%s] success with %s", label, model)
-            return result
-        except OpenAIError as e:
-            status = getattr(e, "status_code", None)
-            if status == 429:
-                logger.warning("[%s] %s rate-limited, trying next", label, model)
-            else:
-                logger.warning("[%s] %s API error: %s", label, model, e)
-            last_error = e
-        except (json.JSONDecodeError, ValueError) as e:
-            logger.warning("[%s] %s parse error: %s", label, model, e)
-            last_error = e
+        for i, key in enumerate(keys):
+            key_label = f"key{i + 1}"
+            logger.info("[%s] trying %s (%s)", label, model, key_label)
+            try:
+                client = _openrouter_client(key)
+                raw = _call_model(client, model, system, user)
+                raw = _strip_fences(raw)
+                result = json.loads(raw)
+                missing = required_keys - result.keys()
+                if missing:
+                    raise ValueError(f"Missing keys: {missing}")
+                logger.info("[%s] success with %s (%s)", label, model, key_label)
+                return result
+            except OpenAIError as e:
+                status = getattr(e, "status_code", None)
+                if status == 429:
+                    logger.warning("[%s] %s (%s) rate-limited, trying next", label, model, key_label)
+                else:
+                    logger.warning("[%s] %s (%s) API error: %s", label, model, key_label, e)
+                last_error = e
+            except (json.JSONDecodeError, ValueError) as e:
+                logger.warning("[%s] %s parse error: %s", label, model, e)
+                last_error = e
+                break  # parse error is model output problem, not key problem — skip to next model
 
     raise RuntimeError(f"All {label} models failed. Last: {last_error}")
 
 
-def _analyze(client: OpenAI, error_message: str, stack_trace: str, filename: str) -> dict:
+def _analyze(keys: list[str], error_message: str, stack_trace: str, filename: str) -> dict:
     """Step 1: Small LLM identifies root cause. No file content — keeps context tiny."""
     user = f"""Error: {error_message}
 
@@ -131,13 +140,13 @@ Stack trace:
 Affected file: {filename}"""
 
     return _try_models(
-        client, ANALYZER_MODELS, ANALYZER_SYSTEM, user,
+        keys, ANALYZER_MODELS, ANALYZER_SYSTEM, user,
         required_keys={"root_cause", "buggy_line", "fix_strategy", "scope"},
         label="analyzer",
     )
 
 
-def _fix(client: OpenAI, analysis: dict, file_content: str, filename: str) -> dict:
+def _fix(keys: list[str], analysis: dict, file_content: str, filename: str) -> dict:
     """Step 2: Code LLM applies the fix. Gets file + pre-digested analysis only."""
     user = f"""Root cause: {analysis['root_cause']}
 Buggy line: {analysis['buggy_line']}
@@ -148,7 +157,7 @@ File ({filename}):
 {file_content}"""
 
     return _try_models(
-        client, FIXER_MODELS, FIXER_SYSTEM, user,
+        keys, FIXER_MODELS, FIXER_SYSTEM, user,
         required_keys={"fixed_code", "fix_summary"},
         label="fixer",
     )
@@ -160,11 +169,15 @@ def generate_fix(
     file_content: str,
     filename: str,
 ) -> dict:
-    if not OPENROUTER_API_KEY and not OPENAI_API_KEY:
+    keys = _get_openrouter_keys()
+    if not keys and not OPENAI_API_KEY:
         raise ValueError("No LLM credentials. Set OPENROUTER_API_KEY or OPENAI_API_KEY in .env")
 
-    logger.info("Starting two-LLM pipeline for: %s", filename)
-    client = _openrouter_client() if OPENROUTER_API_KEY else OpenAI(api_key=OPENAI_API_KEY)
+    if keys:
+        logger.info("Starting two-LLM pipeline for: %s (%d OpenRouter key(s))", filename, len(keys))
+    else:
+        logger.info("Starting two-LLM pipeline for: %s (OpenAI fallback)", filename)
+        keys = [OPENAI_API_KEY]  # reuse same flow; OpenAI client built below is unused
 
     MAX_RETRIES = 3
     last_error = None
@@ -174,14 +187,16 @@ def generate_fix(
             logger.info("Pipeline attempt %d/%d", attempt, MAX_RETRIES)
 
             # Step 1: Analyze — fast small model, no file content
-            logger.info("Step 1/2: Analyzing error...")
-            analysis = _analyze(client, error_message, stack_trace, filename)
-            logger.info("Analysis: %s", analysis["root_cause"])
-            logger.info("Fix strategy: %s", analysis["fix_strategy"])
+            logger.info("   Step 2a — Analyzer LLM pinpointing root cause...")
+            analysis = _analyze(keys, error_message, stack_trace, filename)
+            logger.info("   ✓ Root cause: %s", analysis["root_cause"])
+            logger.info("   ✓ Buggy line: %s", analysis.get("buggy_line", "?"))
+            logger.info("   ✓ Fix strategy: %s", analysis["fix_strategy"])
 
             # Step 2: Fix — code model gets file + analysis summary only
-            logger.info("Step 2/2: Generating fix...")
-            fix = _fix(client, analysis, file_content, filename)
+            logger.info("   Step 2b — Fixer LLM writing patch...")
+            fix = _fix(keys, analysis, file_content, filename)
+            logger.info("   ✓ Patch generated (%d chars)", len(fix.get("fixed_code", "")))
 
             return {
                 "fixed_code": fix["fixed_code"],

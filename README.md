@@ -1,8 +1,51 @@
 # DevLoop
 
-DevLoop is a production incident resolution agent. When Sentry detects an error, DevLoop automatically fetches the affected file, uses OpenAI Codex to diagnose and fix the bug, tests the patch in a Docker sandbox, and opens a GitHub PR — no human needed until review.
+AI-powered production incident resolution agent. Sentry detects a crash → DevLoop fetches the broken file, runs a two-LLM diagnosis + fix pipeline, tests the patch in a Docker sandbox, opens a GitHub PR, and notifies Slack — automatically.
 
-## Setup
+**Live demo:** https://devloop-frontend.vercel.app
+**Backend API:** https://devloop-qtn8.onrender.com
+
+---
+
+## How it works
+
+```
+Sentry webhook  ──►  POST /webhook/sentry
+Manual trigger  ──►  POST /trigger
+Demo trigger    ──►  POST /trigger/demo
+                        │
+                   orchestrator.py
+                   ├── github_client.py   fetch file → create branch → commit → open PR
+                   ├── codex_client.py    two-LLM pipeline: analyzer → fixer
+                   ├── sandbox_runner.py  Docker test runner
+                   └── slack_notify.py    incoming webhook notification
+```
+
+### Two-LLM pipeline
+
+1. **Analyzer** (small/fast) — reads error + stack trace only, outputs `{root_cause, buggy_line, fix_strategy, scope}`
+2. **Fixer** (code-focused) — reads file + analyzer output only, outputs `{fixed_code, fix_summary}`
+
+Both pools have 4 free OpenRouter models + a backup API key as fallback. `max_retries=0` on the SDK — our loop handles 429s by moving to the next model.
+
+---
+
+## Stack
+
+| Layer | Tech |
+|---|---|
+| Backend | FastAPI, Python 3.11+ |
+| LLM | OpenRouter (free tier, multi-model fallback) |
+| GitHub | PyGithub — fetch, branch, commit, PR |
+| Auth | GitHub OAuth + Slack OAuth, JWT cookies |
+| Database | Supabase (PostgreSQL) — users, runs, logs, repos |
+| Live logs | Server-Sent Events (SSE) per user |
+| Frontend | Next.js 15, Tailwind CSS, TypeScript |
+| Sandbox | Docker |
+
+---
+
+## Local setup
 
 ### 1. Install dependencies
 
@@ -18,76 +61,129 @@ Requires Python 3.11+ and Docker running locally.
 cp .env.example .env
 ```
 
-Fill in `.env`:
+Key variables:
 
 | Variable | Description |
 |---|---|
-| `SENTRY_WEBHOOK_SECRET` | From Sentry project settings → Client Keys |
-| `OPENAI_API_KEY` | OpenAI key with access to `codex-mini-latest` |
-| `GITHUB_TOKEN` | Personal access token (`repo` + `pull_request` scopes) |
-| `GITHUB_REPO` | Target repo as `owner/reponame` |
-| `GITHUB_BASE_BRANCH` | Branch to diff against and PR into (default: `main`) |
-| `SLACK_WEBHOOK_URL` | Slack incoming webhook URL (optional) |
-| `TEST_COMMAND` | Command to run in sandbox (default: `pytest`) |
-| `DOCKER_IMAGE` | Docker image for tests (default: `python:3.11-slim`) |
+| `OPENROUTER_API_KEY` | Primary LLM key — free at openrouter.ai |
+| `OPENROUTER_API_KEY_2` | Backup LLM key (different account) for rate limit failover |
+| `GITHUB_TOKEN` | Fallback PAT if user has no OAuth token |
+| `GITHUB_CLIENT_ID / SECRET` | GitHub OAuth app credentials |
+| `SLACK_CLIENT_ID / SECRET` | Slack OAuth app (scope: `incoming-webhook`) |
+| `SUPABASE_URL / SERVICE_KEY` | Supabase project credentials |
+| `JWT_SECRET` | Cookie signing secret |
+| `FRONTEND_URL` | CORS origin (default: `http://localhost:3000`) |
+| `BACKEND_URL` | Self-reference for OAuth callbacks (default: `http://localhost:8000`) |
+| `SENTRY_WEBHOOK_SECRET` | Optional — verifies Sentry webhook HMAC signature |
 
-### 3. Start the server
+### 3. Create Supabase tables
+
+Run this once in your Supabase SQL editor:
+
+```sql
+create table if not exists users (
+  id uuid primary key default gen_random_uuid(),
+  github_id text unique not null,
+  github_login text,
+  github_token text,
+  slack_webhook_url text,
+  created_at timestamptz default now()
+);
+
+create table if not exists runs (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references users(id) on delete cascade,
+  error_message text,
+  filename text,
+  environment text,
+  status text default 'running',
+  pr_url text,
+  branch text,
+  test_passed boolean,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+create table if not exists log_lines (
+  id uuid primary key default gen_random_uuid(),
+  run_id uuid references runs(id) on delete cascade,
+  user_id uuid references users(id) on delete cascade,
+  level text,
+  message text,
+  created_at timestamptz default now()
+);
+
+create table if not exists user_repos (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references users(id) on delete cascade,
+  repo text not null,
+  base_branch text default 'main',
+  sentry_secret text,
+  created_at timestamptz default now(),
+  unique(user_id, repo)
+);
+create index if not exists idx_user_repos_user_id on user_repos(user_id);
+```
+
+### 4. Run locally
 
 ```bash
-uvicorn main:app --host 0.0.0.0 --port 8000
+# Backend
+python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+# Frontend
+cd dashboard && npm run dev
+
+# Optional: expose backend for Sentry webhooks
+ngrok http 8000
 ```
 
-## Connect Sentry Webhook
+---
 
-1. Go to your Sentry project → **Settings → Integrations → Webhooks**
-2. Add webhook URL: `https://your-server.com/webhook/sentry`
-3. Enable the **Error** event type
-4. Copy the webhook secret and set `SENTRY_WEBHOOK_SECRET` in `.env`
+## Connecting Sentry
 
-## Test Locally
+1. Sentry project → **Settings → Integrations → Webhooks**
+2. Add URL: `https://devloop-qtn8.onrender.com/webhook/sentry`
+3. Enable **issue** events
+4. Copy signing secret → set `SENTRY_WEBHOOK_SECRET` in `.env`
 
-Send a mock Sentry payload without a real Sentry account:
+No prod bugs? Use the **"Try Demo Repo"** button on the dashboard — fires against `rishikesh183/devloop-demo-app` which has a live bug maintained for demos.
 
-```bash
-curl -X POST http://localhost:8000/webhook/sentry \
-  -H "Content-Type: application/json" \
-  -d @mock_sentry_payload.json
+---
+
+## Deploy
+
+**Backend (Render)**
+- Start command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
+- Set all env vars in Render dashboard
+
+**Frontend (Vercel)**
+- Root dir: `dashboard`
+- Env var: `NEXT_PUBLIC_BACKEND_URL=https://devloop-qtn8.onrender.com`
+
+**OAuth callback URLs to register:**
+- GitHub: `https://devloop-qtn8.onrender.com/auth/github/callback`
+- Slack: `https://devloop-qtn8.onrender.com/auth/slack/callback`
+
+---
+
+## File map
+
 ```
-
-The server returns `200` immediately. Watch logs for the full pipeline:
-
+main.py                    FastAPI app — all endpoints, SSE, OAuth
+agent/
+  orchestrator.py          Pipeline coordinator
+  codex_client.py          Two-LLM pipeline with model fallback
+  github_client.py         PyGithub wrapper
+  sandbox_runner.py        Docker test runner
+  slack_notify.py          Slack webhook sender
+db/
+  client.py                Supabase singleton
+  users.py                 User CRUD
+  runs.py                  Run + log_lines CRUD
+  repos.py                 user_repos CRUD
+dashboard/
+  app/page.tsx             Landing page
+  app/dashboard/page.tsx   Main dashboard UI
+mock_sentry_payload.json   Demo payload — TypeError in store/pricing.py
 ```
-DevLoop triggered for error: TypeError: unsupported operand type(s)...
-Fetching app/utils/calculator.py from owner/repo@main
-Codex generated fix successfully for app/utils/calculator.py
-Branch fix/devloop-20240315143022 created
-Running sandbox tests...
-Tests PASSED in 8.43s
-PR opened: https://github.com/owner/repo/pull/42
-Slack notification sent
-```
-
-## Example PR Output
-
-```markdown
-## Error Summary
-**File:** `app/utils/calculator.py`
-**Error:** TypeError: unsupported operand type(s) for +: 'NoneType' and 'int'
-
-## Root Cause
-The `tax_amount` parameter can be `None` when no tax applies to an item,
-but the function assumes it is always an integer. The addition `base_price + tax_amount`
-raises `TypeError` when `tax_amount` is `None`.
-
-## Fix Applied
-Added a `None` guard: `tax_amount = tax_amount or 0` before the addition.
-This treats missing tax as zero without changing the return type or logic.
-
-## Test Results
-**Status:** ✅ Passing
-**Duration:** 8.43s
-```
-
-## Run Log
-
-Every DevLoop run is appended to `devloop_runs.json` for audit and dashboard use.

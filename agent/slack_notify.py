@@ -16,9 +16,11 @@ def send_notification(
     filename: str,
     test_results: dict,
     pr_url: str,
+    webhook_url: str = None,
 ) -> None:
-    if not SLACK_WEBHOOK_URL:
-        logger.warning("SLACK_WEBHOOK_URL not set — skipping Slack notification")
+    url = webhook_url or SLACK_WEBHOOK_URL
+    if not url:
+        logger.warning("No Slack webhook URL — skipping notification")
         return
 
     test_emoji = "✅ Passing" if test_results.get("passed") else "❌ Failing"
@@ -38,7 +40,7 @@ def send_notification(
 
     try:
         response = requests.post(
-            SLACK_WEBHOOK_URL,
+            url,
             json=message,
             timeout=10,
         )
