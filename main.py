@@ -36,8 +36,8 @@ GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET", "")
 SLACK_CLIENT_ID = os.getenv("SLACK_CLIENT_ID", "")
 SLACK_CLIENT_SECRET = os.getenv("SLACK_CLIENT_SECRET", "")
 JWT_SECRET = os.getenv("JWT_SECRET", "devloop-secret-change-in-prod")
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
-BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
+BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000").rstrip("/")
 SENTRY_WEBHOOK_SECRET = os.getenv("SENTRY_WEBHOOK_SECRET", "")
 MOCK_PAYLOAD_PATH = Path("mock_sentry_payload.json")
 
@@ -232,9 +232,12 @@ async def github_callback(code: str):
 
     session_token = create_session_token(user_id)
     response = RedirectResponse(f"{FRONTEND_URL}/dashboard?connected=github")
+    is_secure = BACKEND_URL.startswith("https")
     response.set_cookie(
         "session", session_token,
-        httponly=True, samesite="lax",
+        httponly=True,
+        samesite="none" if is_secure else "lax",
+        secure=is_secure,
         max_age=60 * 60 * 24 * 30,
     )
     return response
@@ -443,20 +446,12 @@ async def manual_trigger(
 async def get_runs(session: str | None = Cookie(default=None)):
     user_id = get_current_user_id(session)
     if not user_id:
-        # unauthenticated: return legacy JSON file runs
-        if RUNS_LOG_PATH.exists():
-            try:
-                return list(reversed(json.loads(RUNS_LOG_PATH.read_text())))
-            except Exception:
-                pass
         return []
     try:
         from db.runs import get_runs_for_user
         return get_runs_for_user(user_id)
     except Exception as e:
         logger.warning("Supabase unavailable for runs: %s", e)
-        if RUNS_LOG_PATH.exists():
-            return list(reversed(json.loads(RUNS_LOG_PATH.read_text())))
         return []
 
 
