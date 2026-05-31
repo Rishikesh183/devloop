@@ -65,12 +65,23 @@ def _get_user_config(user_id: str, repo_override: str = None, demo: bool = False
     except Exception as e:
         logger.warning("Could not fetch user config from Supabase: %s", e)
 
+    user_openrouter_key = None
+    user_model = None
+    try:
+        if user and user.get("user_openrouter_key"):
+            user_openrouter_key = user["user_openrouter_key"]
+            user_model = user.get("preferred_model")
+    except Exception:
+        pass
+
     return {
         "github_token": github_token,
         "github_repo": repo,
         "github_base_branch": base_branch,
         "slack_webhook_url": slack_webhook_url,
         "sentry_secret": sentry_secret,
+        "user_openrouter_key": user_openrouter_key,
+        "user_model": user_model,
     }
 
 
@@ -134,6 +145,8 @@ async def run_orchestrator(parsed_error: dict, user_id: str = "anonymous", demo:
     base_branch = config["github_base_branch"]
     github_token = config["github_token"]
     slack_webhook = config["slack_webhook_url"]
+    user_openrouter_key = config.get("user_openrouter_key")
+    user_model = config.get("user_model")
 
     info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     info("🔧 DevLoop pipeline started")
@@ -172,6 +185,8 @@ async def run_orchestrator(parsed_error: dict, user_id: str = "anonymous", demo:
             stack_trace=stack_trace,
             file_content=file_content,
             filename=filename,
+            user_key=user_openrouter_key,
+            user_model=user_model,
         )
     except Exception as e:
         error("❌ Fix generation failed: %s — no PR will be opened", e)

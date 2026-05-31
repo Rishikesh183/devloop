@@ -309,10 +309,30 @@ async def me(session: str | None = Cookie(default=None)):
                 "github_login": user.get("github_login"),
                 "github_repo": user.get("github_repo"),
                 "slack_connected": bool(user.get("slack_webhook_url")),
+                "preferred_model": user.get("preferred_model"),
+                "has_user_key": bool(user.get("user_openrouter_key")),
             }
     except Exception:
         pass
     return {"authenticated": True, "user_id": user_id}
+
+
+@app.patch("/me/settings")
+async def update_settings(request: Request, session: str | None = Cookie(default=None)):
+    user_id = get_current_user_id(session)
+    if not user_id:
+        raise HTTPException(401, "Not authenticated")
+    body = await request.json()
+    allowed = {"preferred_model", "user_openrouter_key"}
+    updates = {k: v for k, v in body.items() if k in allowed}
+    if not updates:
+        raise HTTPException(400, "No valid fields")
+    try:
+        from db.users import update_user
+        update_user(user_id, **updates)
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(500, f"Could not update settings: {e}")
 
 
 @app.get("/me/repos")

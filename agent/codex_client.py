@@ -130,7 +130,7 @@ def _try_models(keys: list[str], models: list[str], system: str, user: str, requ
     raise RuntimeError(f"All {label} models failed. Last: {last_error}")
 
 
-def _analyze(keys: list[str], error_message: str, stack_trace: str, filename: str) -> dict:
+def _analyze(keys: list[str], error_message: str, stack_trace: str, filename: str, model_override: list[str] | None = None) -> dict:
     """Step 1: Small LLM identifies root cause. No file content — keeps context tiny."""
     user = f"""Error: {error_message}
 
@@ -140,13 +140,13 @@ Stack trace:
 Affected file: {filename}"""
 
     return _try_models(
-        keys, ANALYZER_MODELS, ANALYZER_SYSTEM, user,
+        keys, model_override or ANALYZER_MODELS, ANALYZER_SYSTEM, user,
         required_keys={"root_cause", "buggy_line", "fix_strategy", "scope"},
         label="analyzer",
     )
 
 
-def _fix(keys: list[str], analysis: dict, file_content: str, filename: str) -> dict:
+def _fix(keys: list[str], analysis: dict, file_content: str, filename: str, model_override: list[str] | None = None) -> dict:
     """Step 2: Code LLM applies the fix. Gets file + pre-digested analysis only."""
     user = f"""Root cause: {analysis['root_cause']}
 Buggy line: {analysis['buggy_line']}
@@ -157,7 +157,7 @@ File ({filename}):
 {file_content}"""
 
     return _try_models(
-        keys, FIXER_MODELS, FIXER_SYSTEM, user,
+        keys, model_override or FIXER_MODELS, FIXER_SYSTEM, user,
         required_keys={"fixed_code", "fix_summary"},
         label="fixer",
     )
@@ -168,8 +168,16 @@ def generate_fix(
     stack_trace: str,
     file_content: str,
     filename: str,
+    user_key: str | None = None,
+    user_model: str | None = None,
 ) -> dict:
-    keys = _get_openrouter_keys()
+    if user_key and user_model:
+        keys = [user_key]
+        logger.info("Using user-provided model: %s", user_model)
+    else:
+        keys = _get_openrouter_keys()
+        user_model = None
+
     if not keys and not OPENAI_API_KEY:
         raise ValueError("No LLM credentials. Set OPENROUTER_API_KEY or OPENAI_API_KEY in .env")
 
@@ -177,7 +185,7 @@ def generate_fix(
         logger.info("Starting two-LLM pipeline for: %s (%d OpenRouter key(s))", filename, len(keys))
     else:
         logger.info("Starting two-LLM pipeline for: %s (OpenAI fallback)", filename)
-        keys = [OPENAI_API_KEY]  # reuse same flow; OpenAI client built below is unused
+        keys = [OPENAI_API_KEY]
 
     MAX_RETRIES = 3
     last_error = None
@@ -186,16 +194,18 @@ def generate_fix(
         try:
             logger.info("Pipeline attempt %d/%d", attempt, MAX_RETRIES)
 
-            # Step 1: Analyze — fast small model, no file content
+            # Step 1: Analyze
             logger.info("   Step 2a — Analyzer LLM pinpointing root cause...")
-            analysis = _analyze(keys, error_message, stack_trace, filename)
+            analyzer_models = [user_model] if user_model else ANALYZER_MODELS
+            analysis = _analyze(keys, error_message, stack_trace, filename, model_override=analyzer_models)
             logger.info("   ✓ Root cause: %s", analysis["root_cause"])
             logger.info("   ✓ Buggy line: %s", analysis.get("buggy_line", "?"))
             logger.info("   ✓ Fix strategy: %s", analysis["fix_strategy"])
 
-            # Step 2: Fix — code model gets file + analysis summary only
+            # Step 2: Fix
             logger.info("   Step 2b — Fixer LLM writing patch...")
-            fix = _fix(keys, analysis, file_content, filename)
+            fixer_models = [user_model] if user_model else FIXER_MODELS
+            fix = _fix(keys, analysis, file_content, filename, model_override=fixer_models)
             logger.info("   ✓ Patch generated (%d chars)", len(fix.get("fixed_code", "")))
 
             return {
