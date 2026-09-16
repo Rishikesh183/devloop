@@ -3,7 +3,7 @@ from db.client import get_db
 
 logger = logging.getLogger("devloop.db.repos")
 
-DEMO_REPO = "rishikesh183/devloop-demo-app"
+DEMO_REPO = "ManasaVeena1602/devloop-demo-app"
 
 
 def add_repo(user_id: str, repo: str, base_branch: str = "main", sentry_secret: str = None) -> dict:

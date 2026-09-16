@@ -381,7 +381,7 @@ async def delete_repo(repo: str, session: str | None = Cookie(default=None)):
 
 @app.post("/trigger/demo")
 async def trigger_demo(background_tasks: BackgroundTasks, session: str | None = Cookie(default=None)):
-    """Fire demo pipeline against rishikesh183/devloop-demo-app."""
+    """Fire demo pipeline against ManasaVeena1602/devloop-demo-app."""
     user_id = get_current_user_id(session) or "anonymous"
     if not MOCK_PAYLOAD_PATH.exists():
         raise HTTPException(404, "mock_sentry_payload.json not found")
@@ -396,10 +396,10 @@ async def trigger_demo(background_tasks: BackgroundTasks, session: str | None = 
 
     payload = json.loads(MOCK_PAYLOAD_PATH.read_text())
     parsed = parse_sentry_payload(payload)
-    parsed["_demo_repo"] = "rishikesh183/devloop-demo-app"
+    parsed["_demo_repo"] = "ManasaVeena1602/devloop-demo-app"
     logger.info("Demo trigger by user %s", user_id)
     background_tasks.add_task(_run_orchestrator_with_context, parsed, user_id, True)
-    return {"status": "accepted", "message": "Demo pipeline started against rishikesh183/devloop-demo-app"}
+    return {"status": "accepted", "message": "Demo pipeline started against ManasaVeena1602/devloop-demo-app"}
 
 
 @app.post("/auth/logout")

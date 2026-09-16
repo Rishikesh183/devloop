@@ -13,7 +13,7 @@
           "stacktrace": {
             "frames": [
               {
-                "filename": "store/pricing.py",
+                "filename": "devloop-ai-codespace-fuzzy-meme-r46gqgvvw563p9jj/store/pricing.py",
                 "lineno": 2,
                 "function": "apply_discount",
                 "in_app": true,
@@ -24,7 +24,7 @@
                 "post_context": []
               },
               {
-                "filename": "store/pricing.py",
+                "filename": "devloop-ai-codespace-fuzzy-meme-r46gqgvvw563p9jj/store/pricing.py",
                 "lineno": 10,
                 "function": "calculate_order_total",
                 "in_app": true,

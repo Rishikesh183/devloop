@@ -147,7 +147,7 @@ ngrok http 8000
 3. Enable **issue** events
 4. Copy signing secret → set `SENTRY_WEBHOOK_SECRET` in `.env`
 
-No prod bugs? Use the **"Try Demo Repo"** button on the dashboard — fires against `rishikesh183/devloop-demo-app` which has a live bug maintained for demos.
+No prod bugs? Use the **"Try Demo Repo"** button on the dashboard — fires against `ManasaVeena1602/devloop-demo-app` which has a live bug maintained for demos.
 
 ---
 

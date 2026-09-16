@@ -37,7 +37,7 @@ def _get_user_config(user_id: str, repo_override: str = None, demo: bool = False
     """Fetch per-user GitHub token + Slack webhook. Repo from override, demo, or first user_repo."""
     github_token = os.getenv("GITHUB_TOKEN", "")
     slack_webhook_url = SLACK_WEBHOOK_URL
-    repo = repo_override or (GITHUB_REPO if not demo else "rishikesh183/devloop-demo-app")
+    repo = repo_override or (GITHUB_REPO if not demo else "ManasaVeena1602/devloop-demo-app")
     base_branch = GITHUB_BASE_BRANCH
     sentry_secret = None
 
