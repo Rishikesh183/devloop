@@ -226,11 +226,39 @@ def match_sentry_sender(body: bytes, sig: str) -> dict | None:
     return None
 
 
+def sentry_should_ignore(payload: dict, resource: str) -> str | None:
+    """Reason to skip a webhook (installs, resolved/assigned issues...), or None to run the pipeline."""
+    if resource == "installation":
+        return "installation event"
+    action = payload.get("action")
+    if action and action not in ("created", "triggered"):
+        return f"action '{action}'"
+    return None
+
+
 def parse_sentry_payload(payload: dict) -> dict:
-    event = payload.get("event", {})
+    # Legacy WebHooks plugin: top-level "event".
+    # Internal Integration: data.event (alert rule action) / data.error (error.created) / data.issue.
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    event = payload.get("event") or data.get("event") or data.get("error") or {}
+    if not event and data.get("issue"):
+        issue = data["issue"]
+        meta = issue.get("metadata") or {}
+        event = {
+            "title": issue.get("title"),
+            "exception": {"values": [{
+                "type": meta.get("type", "Exception"),
+                "value": meta.get("value", issue.get("title", "Unknown error")),
+                "stacktrace": {"frames": [{
+                    "filename": meta.get("filename", "unknown"),
+                    "function": meta.get("function", "?"),
+                    "in_app": True,
+                }]} if meta.get("filename") else {},
+            }]},
+        }
     exception = event.get("exception", {})
     values = exception.get("values", [{}])
-    exc_value = values[0] if values else {}
+    exc_value = values[-1] if values else {}   # last value is the exception actually raised
     error_message = exc_value.get("value", event.get("title", "Unknown error"))
     exc_type = exc_value.get("type", "Exception")
     frames = exc_value.get("stacktrace", {}).get("frames", [])
@@ -595,6 +623,7 @@ async def sentry_webhook(
     request: Request,
     background_tasks: BackgroundTasks,
     sentry_hook_signature: str = Header(default="", alias="Sentry-Hook-Signature"),
+    sentry_hook_resource: str = Header(default="", alias="Sentry-Hook-Resource"),
 ):
     body = await request.body()
     sender = match_sentry_sender(body, sentry_hook_signature)
@@ -604,6 +633,10 @@ async def sentry_webhook(
         payload = json.loads(body)
     except json.JSONDecodeError:
         raise HTTPException(400, "Invalid JSON")
+    skip = sentry_should_ignore(payload, sentry_hook_resource)
+    if skip:
+        logger.info("Sentry webhook ignored: %s", skip)
+        return {"status": "ignored", "reason": skip}
 
     parsed = parse_sentry_payload(payload)
     user_id = sender["user_id"]

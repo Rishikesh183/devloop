@@ -198,10 +198,14 @@ ngrok http 8000
 
 ## Connecting Sentry
 
-1. Sentry project → **Settings → Integrations → Webhooks**
-2. Add URL: `https://devloop-qtn8.onrender.com/webhook/sentry`
-3. Enable **issue** events
-4. Copy signing secret → set `SENTRY_WEBHOOK_SECRET` in `.env`
+Use an **Internal Integration** (signed webhooks). The old "Integrations → WebHooks" plugin sends unsigned requests, which DevLoop rejects.
+
+1. Sentry → **Settings → Developer Settings → Custom Integrations → Create New Integration → Internal Integration**
+2. Webhook URL: `https://devloop-qtn8.onrender.com/webhook/sentry`
+3. Turn on **Alert Rule Action**. Permissions: Issue & Event → Read. (Optional: subscribe to `issue` webhooks)
+4. Save, copy the **Client Secret**. Either paste it as the repo's "Sentry secret" in the dashboard (routes to that user + repo), or set it as `SENTRY_WEBHOOK_SECRET` (global, runs against `GITHUB_REPO`)
+5. **Alerts → Create Alert → Issues**: when "a new issue is created" → action "Send a notification via DevLoop" (your integration)
+6. Your app must report to Sentry (`sentry_sdk.init(dsn=...)`), and frame paths must match repo paths
 
 No prod bugs? Hit **💥 Break Prod** on the dashboard: DevLoop pushes one of four realistic bugs (`agent/scenarios.py`) to a fresh `incident/*` branch of the demo repo, fires a Sentry-shaped alert, and you watch the timer from bad deploy to PR. Or use the **"Try Demo Repo"** button on the dashboard — fires against the repo set in `DEMO_REPO` (default `ManasaVeena1602/devloop-demo-app`) which has a live bug maintained for demos.
 
