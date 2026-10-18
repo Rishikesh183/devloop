@@ -4,7 +4,7 @@ import os
 from datetime import datetime, timezone
 
 from dotenv import load_dotenv
-from github import Github, GithubException
+from github import Github, GithubException, InputGitTreeElement
 
 load_dotenv()
 
@@ -40,14 +40,23 @@ def fetch_file(repo_name: str, filepath: str, branch: str = None, token: str = N
         raise
 
 
-def create_branch(repo_name: str, branch_name: str, token: str = None) -> str:
+def get_file_tree(repo_name: str, ref: str, token: str = None, limit: int = 3000) -> list[str]:
+    """All file paths in the repo at `ref` (used to show the LLM where tests live)."""
+    g = _get_client(token)
+    repo = g.get_repo(repo_name)
+    tree = repo.get_git_tree(ref, recursive=True).tree
+    return [e.path for e in tree if e.type == "blob"][:limit]
+
+
+def create_branch(repo_name: str, branch_name: str, base_branch: str = None, token: str = None) -> str:
+    base_branch = base_branch or GITHUB_BASE_BRANCH
     logger.info("Creating branch %s in %s", branch_name, repo_name)
     try:
         g = _get_client(token)
         repo = g.get_repo(repo_name)
-        base_ref = repo.get_branch(GITHUB_BASE_BRANCH)
+        base_ref = repo.get_branch(base_branch)
         repo.create_git_ref(f"refs/heads/{branch_name}", base_ref.commit.sha)
-        logger.info("Branch %s created from %s", branch_name, GITHUB_BASE_BRANCH)
+        logger.info("Branch %s created from %s", branch_name, base_branch)
         return branch_name
     except GithubException as e:
         logger.error("GitHub error creating branch %s: %s", branch_name, e)
@@ -88,14 +97,36 @@ def commit_patch(
         raise
 
 
+def commit_files(repo_name: str, branch: str, files: dict[str, str], message: str, token: str = None) -> str:
+    """Create or update several files in one commit on `branch`. Returns the commit sha."""
+    logger.info("Committing %d file(s) to %s on branch %s", len(files), repo_name, branch)
+    try:
+        g = _get_client(token)
+        repo = g.get_repo(repo_name)
+        ref = repo.get_git_ref(f"heads/{branch}")
+        parent = repo.get_git_commit(ref.object.sha)
+        elements = [InputGitTreeElement(path, "100644", "blob", content=content) for path, content in files.items()]
+        tree = repo.create_git_tree(elements, parent.tree)
+        commit = repo.create_git_commit(message, tree, [parent])
+        ref.edit(commit.sha)
+        logger.info("Committed %s", commit.sha)
+        return commit.sha
+    except GithubException as e:
+        logger.error("GitHub error committing to %s: %s", branch, e)
+        raise
+
+
 def open_pr(
     repo_name: str,
     branch: str,
     title: str,
     body: str,
+    base_branch: str = None,
     token: str = None,
+    draft: bool = False,
 ) -> str:
-    logger.info("Opening PR from %s in %s", branch, repo_name)
+    base_branch = base_branch or GITHUB_BASE_BRANCH
+    logger.info("Opening %sPR from %s in %s", "draft " if draft else "", branch, repo_name)
     try:
         g = _get_client(token)
         repo = g.get_repo(repo_name)
@@ -103,7 +134,8 @@ def open_pr(
             title=title,
             body=body,
             head=branch,
-            base=GITHUB_BASE_BRANCH,
+            base=base_branch,
+            draft=draft,
         )
         logger.info("PR opened: %s", pr.html_url)
         return pr.html_url
@@ -120,35 +152,68 @@ def make_branch_name() -> str:
     return f"fix/devloop-{ts}"
 
 
+def _test_line(result: dict | None, expect_fail: bool = False) -> str:
+    if not result:
+        return "not run"
+    if expect_fail:
+        if result.get("exit_code") == 1:
+            return "❌ failed on the original code (bug reproduced)"
+        return f"⚠️ did not reproduce the bug (exit {result.get('exit_code')})"
+    return "✅ passing" if result.get("passed") else f"❌ failing (exit {result.get('exit_code')})"
+
+
 def build_pr_body(
     error_message: str,
-    root_cause: str,
-    fix_summary: str,
-    test_results: dict,
     filename: str,
+    analysis: dict,
+    fix_summary: str,
+    test_path: str,
+    red: dict | None,
+    attempts: list[dict],
+    backend: str,
+    tokens_used: int,
+    duration: float,
 ) -> str:
-    test_status = "✅ Passing" if test_results.get("passed") else "❌ Failing"
-    test_output = test_results.get("output", "No output captured")
-    duration = test_results.get("duration", 0)
+    last = attempts[-1] if attempts else {}
+    green = last.get("result")
+    history = "\n".join(
+        f"| {a['attempt']} | {_test_line(a.get('result'))} | {a.get('summary', '').replace('|', '/')[:160]} |"
+        for a in attempts
+    ) or "| – | not run | |"
+    output = (green or {}).get("output") or (red or {}).get("output") or "No output captured"
 
     return f"""## Error Summary
 **File:** `{filename}`
 **Error:** {error_message}
 
 ## Root Cause
-{root_cause}
+{analysis.get("root_cause", "")}
+
+**Buggy line:** `{analysis.get("buggy_line", "").strip()}`
 
 ## Fix Applied
 {fix_summary}
 
-## Test Results
-**Status:** {test_status}
-**Duration:** {duration:.2f}s
+## Proof
+| Check | Result |
+|---|---|
+| Regression test `{test_path}` on original code | {_test_line(red, expect_fail=True)} |
+| Full test suite with fix | {_test_line(green)} |
+
+Tests ran on **{backend}**.
+
+### Attempts
+| # | Tests | Change |
+|---|---|---|
+{history}
+
+<details><summary>Last test output</summary>
 
 ```
-{test_output[:3000]}
+{output[-3000:]}
 ```
+</details>
 
 ---
-*Automatically generated by [DevLoop](https://github.com/devloop)*
+*Automatically generated by [DevLoop](https://github.com/devloop) in {duration:.0f}s using {tokens_used:,} LLM tokens.*
 """

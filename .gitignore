@@ -1,3 +1,5 @@
 dashboard
 .env
 __pycache__/
+*.pyc
+devloop_runs.json

@@ -3,8 +3,6 @@ from db.client import get_db
 
 logger = logging.getLogger("devloop.db.repos")
 
-DEMO_REPO = "ManasaVeena1602/devloop-demo-app"
-
 
 def add_repo(user_id: str, repo: str, base_branch: str = "main", sentry_secret: str = None) -> dict:
     db = get_db()
@@ -44,9 +42,16 @@ def get_repo(user_id: str, repo: str) -> dict | None:
     return result.data[0] if result.data else None
 
 
-def ensure_demo_repo(user_id: str) -> dict:
+def list_repos_with_sentry_secret() -> list[dict]:
+    """All repos (any user) that have a Sentry webhook secret, for signature matching."""
+    db = get_db()
+    result = db.table("user_repos")         .select("user_id, repo, sentry_secret")         .not_.is_("sentry_secret", "null")         .execute()
+    return [r for r in result.data if r.get("sentry_secret")]
+
+
+def ensure_demo_repo(user_id: str, demo_repo: str) -> dict:
     """Add demo repo for user if not already present."""
-    existing = get_repo(user_id, DEMO_REPO)
+    existing = get_repo(user_id, demo_repo)
     if existing:
         return existing
-    return add_repo(user_id, DEMO_REPO, base_branch="main")
+    return add_repo(user_id, demo_repo, base_branch="main")

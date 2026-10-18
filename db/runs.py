@@ -23,12 +23,23 @@ def create_run(user_id: str, error_message: str, filename: str, environment: str
     return run_id
 
 
+_BASE_RUN_FIELDS = {"status", "pr_url", "test_passed", "branch", "completed_at"}
+
+
 def update_run(run_id: str, **kwargs) -> None:
     db = get_db()
     if "completed_at" not in kwargs:
         kwargs["completed_at"] = datetime.now(timezone.utc).isoformat()
-    db.table("runs").update(kwargs).eq("id", run_id).execute()
-    logger.info("Updated run %s: %s", run_id, kwargs)
+    try:
+        db.table("runs").update(kwargs).eq("id", run_id).execute()
+    except Exception as e:
+        # Older schema without the newer columns (see README ALTERs) — save what we can
+        base = {k: v for k, v in kwargs.items() if k in _BASE_RUN_FIELDS}
+        if base == kwargs:
+            raise
+        logger.warning("runs table is missing newer columns, saving base fields only: %s", e)
+        db.table("runs").update(base).eq("id", run_id).execute()
+    logger.info("Updated run %s: %s", run_id, sorted(kwargs))
 
 
 def get_runs_for_user(user_id: str) -> list[dict]:
@@ -59,7 +70,7 @@ def get_logs_for_run(run_id: str) -> list[dict]:
     result = db.table("log_lines") \
         .select("level, message, created_at") \
         .eq("run_id", run_id) \
-        .order("id") \
+        .order("created_at") \
         .execute()
     return result.data
 
@@ -69,7 +80,7 @@ def get_recent_logs_for_user(user_id: str, limit: int = 200) -> list[dict]:
     result = db.table("log_lines") \
         .select("level, message, created_at, run_id") \
         .eq("user_id", user_id) \
-        .order("id", desc=True) \
+        .order("created_at", desc=True) \
         .limit(limit) \
         .execute()
     return list(reversed(result.data))

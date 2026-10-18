@@ -1,0 +1,61 @@
+# Test sandbox for DevLoop. The DevLoop server dispatches this workflow with the
+# repo under test plus the files to overlay; results are read back from the job log.
+# Must live on the default branch of ACTIONS_RUNNER_REPO to be dispatchable.
+name: DevLoop Sandbox
+run-name: devloop-${{ inputs.run_token }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: "owner/name of the repo under test"
+        required: true
+        type: string
+      ref:
+        description: "branch or commit to test"
+        required: true
+        type: string
+      bundle:
+        description: "base64(gzip(JSON)) test phases"
+        required: true
+        type: string
+      run_token:
+        description: "correlation id set by DevLoop"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out DevLoop phase runner
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: sandbox
+          path: devloop
+          persist-credentials: false
+
+      - name: Check out repo under test
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.repo }}
+          ref: ${{ inputs.ref }}
+          # Private repos: add a TARGET_REPO_TOKEN secret with read access
+          token: ${{ secrets.TARGET_REPO_TOKEN || github.token }}
+          path: target
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run DevLoop test phases
+        env:
+          BUNDLE: ${{ inputs.bundle }}
+        run: |
+          python -c "import base64, gzip, os, sys; sys.stdout.buffer.write(gzip.decompress(base64.b64decode(os.environ['BUNDLE'])))" > bundle.json
+          python devloop/sandbox/phase_runner.py bundle.json target
