@@ -50,6 +50,9 @@ def _is_db_user(user_id: str) -> bool:
 
 def _get_user_config(user_id: str, repo_override: str = None, demo: bool = False) -> dict:
     """Fetch per-user GitHub token + Slack webhook. Repo from override, demo, or first user_repo."""
+    # Triggering the demo repo from the repo list is still a demo run (server token)
+    if repo_override and repo_override.lower() == DEMO_REPO.lower():
+        demo = True
     github_token = os.getenv("GITHUB_TOKEN", "")
     slack_webhook_url = SLACK_WEBHOOK_URL
     repo = repo_override or (GITHUB_REPO if not demo else DEMO_REPO)
