@@ -42,21 +42,28 @@ EXCERPT_RADIUS_LINES = 80
 
 # Step 1: Analyzer — small/fast models, just reads error + trace
 # Job: identify root cause, pinpoint exact problem. No code generation.
-ANALYZER_MODELS = [
-    "meta-llama/llama-3.2-3b-instruct:free",   # tiny, fast, different bucket
-    "liquid/lfm-2.5-1.2b-instruct:free",        # smallest available
-    "nvidia/nemotron-nano-9b-v2:free",
-    "meta-llama/llama-3.3-70b-instruct:free",   # fallback
-]
+# Free models come and go on OpenRouter — override with comma-separated env lists
+# (check https://openrouter.ai/models?max_price=0) instead of editing code.
+def _env_models(name: str, default: list[str]) -> list[str]:
+    raw = os.getenv(name, "")
+    return [m.strip() for m in raw.split(",") if m.strip()] or default
+
+
+ANALYZER_MODELS = _env_models("ANALYZER_MODELS", [
+    "nvidia/nemotron-3.5-lightning:free",       # fast
+    "minimax/minimax-m3.1-flash:free",
+    "google/gemma-4-26b-a4b-it:free",
+    "poolside/laguna-xs-2.1:free",              # fallback
+])
 
 # Step 2: Fixer — code-focused models, receives only the file + analysis
 # Job: write the minimal fix as search/replace edits plus a regression test.
-FIXER_MODELS = [
-    "qwen/qwen3-coder:free",
-    "nvidia/nemotron-3-super-120b-a12b:free",
-    "deepseek/deepseek-v4-flash:free",
-    "meta-llama/llama-3.3-70b-instruct:free",   # fallback
-]
+FIXER_MODELS = _env_models("FIXER_MODELS", [
+    "cohere/north-mini-code:free",
+    "poolside/laguna-s-2.1:free",
+    "minimax/minimax-m3.1-flash:free",
+    "google/gemma-4-31b-it:free",               # fallback
+])
 
 ANALYZER_SYSTEM = """You are a senior software engineer analyzing a production error.
 Given an error message and stack trace, identify the root cause precisely.
