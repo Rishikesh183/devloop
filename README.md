@@ -103,7 +103,7 @@ Key variables:
 | `DEMO_BASE_BRANCH` | Branch "Break prod" forks incident branches from (default `main`) |
 | `DEMO_APP_ROOT` | Folder in the demo repo containing `store/` (default empty = repo root) |
 | `TEST_RUNNER` | `auto` / `actions` / `docker` / `none` (see above) |
-| `ACTIONS_RUNNER_REPO` | Repo holding the sandbox workflow (default `Rishikesh183/devloop`) |
+| `ACTIONS_RUNNER_REPO` | Repo holding the sandbox workflow (default `manjunath4518/devloop-demo-app`; needs `.github/workflows/devloop-sandbox.yml` + `sandbox/phase_runner.py` on its default branch) |
 | `ACTIONS_RUNNER_TOKEN` | Token with Actions write on that repo (falls back to `GITHUB_TOKEN`) |
 | `MAX_FIX_ATTEMPTS` | Fix → test → feedback rounds before giving up (default 3) |
 | `LLM_MAX_BATCHES` / `LLM_MAX_WAIT_SECONDS` | Rate-limit batch retries (default 4) / longest single wait (default 60s) |
@@ -207,7 +207,7 @@ Use an **Internal Integration** (signed webhooks). The old "Integrations → Web
 5. **Alerts → Create Alert → Issues**: when "a new issue is created" → action "Send a notification via DevLoop" (your integration)
 6. Your app must report to Sentry (`sentry_sdk.init(dsn=...)`), and frame paths must match repo paths
 
-No prod bugs? Hit **💥 Break Prod** on the dashboard: DevLoop pushes one of four realistic bugs (`agent/scenarios.py`) to a fresh `incident/*` branch of the demo repo, fires a Sentry-shaped alert, and you watch the timer from bad deploy to PR. Or use the **"Try Demo Repo"** button on the dashboard — fires against the repo set in `DEMO_REPO` (default `rishikesh183/devloop-demo-app`) which has a live bug maintained for demos.
+No prod bugs? Hit **💥 Break Prod** on the dashboard: DevLoop pushes one of four realistic bugs (`agent/scenarios.py`) to a fresh `incident/*` branch of the demo repo, fires a Sentry-shaped alert, and you watch the timer from bad deploy to PR. Or use the **"Try Demo Repo"** button on the dashboard — fires against the repo set in `DEMO_REPO` (default `manjunath4518/devloop-demo-app`) which has a live bug maintained for demos.
 
 ---
 

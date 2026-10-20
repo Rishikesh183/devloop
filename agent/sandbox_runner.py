@@ -34,7 +34,7 @@ TEST_COMMAND = os.getenv("TEST_COMMAND", "pytest")
 TIMEOUT_SECONDS = 600
 MAX_REPO_BYTES = 50 * 1024 * 1024
 
-ACTIONS_RUNNER_REPO = os.getenv("ACTIONS_RUNNER_REPO", "Rishikesh183/devloop")
+ACTIONS_RUNNER_REPO = os.getenv("ACTIONS_RUNNER_REPO") or "manjunath4518/devloop-demo-app"
 ACTIONS_RUNNER_REF = os.getenv("ACTIONS_RUNNER_REF", "main")
 ACTIONS_WORKFLOW = os.getenv("ACTIONS_WORKFLOW", "devloop-sandbox.yml")
 ACTIONS_TOKEN = os.getenv("ACTIONS_RUNNER_TOKEN") or os.getenv("GITHUB_TOKEN", "")

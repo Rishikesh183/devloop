@@ -48,7 +48,7 @@ SENTRY_WEBHOOK_SECRET = os.getenv("SENTRY_WEBHOOK_SECRET", "")
 # Local dev only: accept Sentry webhooks that match no secret
 ALLOW_UNSIGNED_WEBHOOKS = os.getenv("ALLOW_UNSIGNED_WEBHOOKS", "").lower() in ("1", "true", "yes")
 MOCK_PAYLOAD_PATH = Path("mock_sentry_payload.json")
-DEMO_REPO = os.getenv("DEMO_REPO") or "rishikesh183/devloop-demo-app"
+DEMO_REPO = os.getenv("DEMO_REPO") or "manjunath4518/devloop-demo-app"
 DEMO_COOLDOWN_SECONDS = int(os.getenv("DEMO_COOLDOWN_SECONDS", "120"))
 DEMO_BASE_BRANCH = os.getenv("DEMO_BASE_BRANCH") or "main"
 SESSION_MAX_AGE = 60 * 60 * 24 * 30
