@@ -20,7 +20,7 @@ logger = logging.getLogger("devloop.orchestrator")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "")
 GITHUB_BASE_BRANCH = os.getenv("GITHUB_BASE_BRANCH", "main")
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
-DEMO_REPO = os.getenv("DEMO_REPO") or "ManasaVeena1602/devloop-demo-app"
+DEMO_REPO = os.getenv("DEMO_REPO") or "rishikesh183/devloop-demo-app"
 RUNS_LOG_PATH = Path("devloop_runs.json")
 MAX_FIX_ATTEMPTS = max(1, int(os.getenv("MAX_FIX_ATTEMPTS", "3")))
 

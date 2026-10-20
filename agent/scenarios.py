@@ -12,7 +12,7 @@ import uuid
 from dataclasses import dataclass
 
 # Folder inside DEMO_REPO that contains store/ and tests/ ("" if they're at the root)
-DEMO_APP_ROOT = os.getenv("DEMO_APP_ROOT", "devloop-ai-codespace-fuzzy-meme-r46gqgvvw563p9jj")
+DEMO_APP_ROOT = os.getenv("DEMO_APP_ROOT", "")
 SOURCE_REL = "store/pricing.py"
 
 
