@@ -521,8 +521,15 @@ async def trigger_demo(
         raise HTTPException(404, "mock_sentry_payload.json not found")
     user_id, new_anon_id = _demo_viewer(session, anon)
 
+    from agent.scenarios import SOURCE_REL, source_path
+
     payload = json.loads(MOCK_PAYLOAD_PATH.read_text())
     parsed = parse_sentry_payload(payload)
+    # Mock payload paths carry one repo's folder layout; re-root them on DEMO_APP_ROOT
+    old_path = parsed["filename"]
+    if old_path.endswith(SOURCE_REL) and old_path != source_path():
+        parsed["filename"] = source_path()
+        parsed["stack_trace"] = parsed["stack_trace"].replace(old_path, source_path())
     parsed["_demo_repo"] = DEMO_REPO
     logger.info("Demo trigger by user %s", user_id)
     background_tasks.add_task(_run_orchestrator_with_context, parsed, user_id, True)
